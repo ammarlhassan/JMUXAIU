@@ -1,0 +1,6 @@
+Dependencies
+
+pip install opencv-python torch torchvision torchaudio
+pip install streamlit
+pip install numpy
+pip install pillow
