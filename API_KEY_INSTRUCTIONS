@@ -1,0 +1,9 @@
+Instructions for secure API key
+
+1. Get your API key from https://roboflow.com/ after making account
+
+2. Store your API key securely in a .env file (same folder as python script)
+ - open your .env file and add:     ROBOFLOW_API_KEY=dsXXXXXXXXXXXX (your key)
+
+3. Add the python library to install python-dotenv lib
+- pip install python-dotenv
