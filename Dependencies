@@ -1,6 +1,4 @@
 Dependencies
 
-pip install opencv-python torch torchvision torchaudio
-pip install streamlit
-pip install numpy
-pip install pillow
+pip install opencv-python torch streamlit numpy pillow ultralytics inference_sdk python-dotenv
+
