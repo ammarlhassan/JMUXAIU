@@ -5,70 +5,73 @@ import numpy as np
 import os
 from PIL import Image
 from ultralytics import YOLO
-from dotenv import load_dotenv
-
-load_dotenv()
 
 st.set_page_config(page_title="Team B Object Detection", layout="wide")
 st.title("Real-Time Object Detection for Autonomous Driving")
-st.subheader("Team B: Pedestrians, Traffic Cones, Lane Detection")
+st.subheader("Team B: Pedestrians, Vehicles, Traffic Cones, Lane Detection")
 
 @st.cache_resource
 def load_models():
-    pedestrian_model = YOLO('yolov8m.pt')
-    lane_model = YOLO('my_model.pt')
-    cone_model = YOLO('my_model2.pt')  # Local cone model
-    return pedestrian_model, lane_model, cone_model
+    pedestrian_vehicle_model = YOLO('yolov8m.pt')  # COCO model
+    cone_model = YOLO('my_model2.pt')              # Custom cone model
+    lane_model = YOLO('my_model.pt')               # Custom lane model
+    return pedestrian_vehicle_model, cone_model, lane_model
 
-pedestrian_model, lane_model, cone_model = load_models()
+pedestrian_vehicle_model, cone_model, lane_model = load_models()
 
 st.sidebar.title("Detection Settings")
 confidence_threshold = st.sidebar.slider("Confidence Threshold", 0.0, 1.0, 0.5, 0.05)
 input_source = st.sidebar.radio("Select Input Source", ["Webcam", "Upload Image", "Upload Video"])
 
-def infer_cones_local(image_np, conf_threshold):
-    results = cone_model(image_np, conf=conf_threshold)[0]
-    return results
-
-def draw_cone_detections(image_np, results):
+def draw_pedestrian_vehicle_detections(image_np, results):
     for box, cls in zip(results.boxes, results.boxes.cls):
+        class_id = int(cls.item())
+        conf = box.conf.item()
+
+        if class_id == 0:  # COCO: person
+            label = f"Pedestrian: {conf:.2f}"
+            color = (0, 255, 0)
+        elif class_id == 2:  # COCO: car
+            label = f"Vehicle: {conf:.2f}"
+            color = (0, 128, 255)
+        else:
+            continue  # skip other classes
+
+        x1, y1, x2, y2 = map(int, box.xyxy[0])
+        cv2.rectangle(image_np, (x1, y1), (x2, y2), color, 2)
+        cv2.putText(image_np, label, (x1, y1 - 10), cv2.FONT_HERSHEY_SIMPLEX, 0.6, color, 2)
+    return image_np
+
+def draw_cone_detections(image_np):
+    results = cone_model(image_np, conf=0.25)[0]
+    for box, cls in zip(results.boxes, results.boxes.cls):
+        if int(cls.item()) != 6:  # Replace 6 with your cone class index if needed
+            continue
         conf = box.conf.item()
         x1, y1, x2, y2 = map(int, box.xyxy[0])
-        label = f"Traffic Cone: {conf:.2f}"
-        cv2.rectangle(image_np, (x1, y1), (x2, y2), (80, 127, 255), 3)
-        cv2.putText(image_np, label, (x1, y1 - 10), cv2.FONT_HERSHEY_SIMPLEX, 0.7, (0, 165, 255), 2)
+        label = f"Cone: {conf:.2f}"
+        cv2.rectangle(image_np, (x1, y1), (x2, y2), (255, 165, 0), 2)
+        cv2.putText(image_np, label, (x1, y1 - 10), cv2.FONT_HERSHEY_SIMPLEX, 0.6, (255, 165, 0), 2)
     return image_np
 
 def draw_lane_detections(image_np):
     results = lane_model(image_np, conf=0.25)[0]
     for box, cls in zip(results.boxes, results.boxes.cls):
-        if int(cls.item()) != 5:  # Show only class 5, which corresponds to "Lane"
+        if int(cls.item()) != 5:  # Custom: Lane class
             continue
-        x1, y1, x2, y2 = map(int, box.xyxy[0])
         conf = box.conf.item()
+        x1, y1, x2, y2 = map(int, box.xyxy[0])
         label = f"Lane: {conf:.2f}"
         cv2.rectangle(image_np, (x1, y1), (x2, y2), (255, 0, 0), 2)
         cv2.putText(image_np, label, (x1, y1 - 10), cv2.FONT_HERSHEY_SIMPLEX, 0.6, (255, 0, 0), 2)
     return image_np
 
 def process_frame(frame, conf_threshold):
-    results = pedestrian_model(frame, conf=conf_threshold)[0]
-    person_mask = results.boxes.cls == 0
-    results.boxes = results.boxes[person_mask]
-
+    results = pedestrian_vehicle_model(frame, conf=conf_threshold)[0]
     annotated_frame = results.orig_img.copy()
-    for box in results.boxes:
-        x1, y1, x2, y2 = map(int, box.xyxy[0])
-        conf = box.conf.item()
-        label = f"Pedestrian: {conf:.2f}"
-        cv2.rectangle(annotated_frame, (x1, y1), (x2, y2), (0, 255, 0), 2)
-        cv2.putText(annotated_frame, label, (x1, y1 - 10), cv2.FONT_HERSHEY_SIMPLEX, 0.6, (0, 255, 0), 2)
-
-    cone_results = infer_cones_local(frame, conf_threshold)
-    annotated_frame = draw_cone_detections(annotated_frame, cone_results)
-
+    annotated_frame = draw_pedestrian_vehicle_detections(annotated_frame, results)
+    annotated_frame = draw_cone_detections(annotated_frame)
     annotated_frame = draw_lane_detections(annotated_frame)
-
     return annotated_frame
 
 if input_source == "Webcam":
@@ -131,14 +134,14 @@ elif input_source == "Upload Video":
                 frame_rgb = cv2.cvtColor(frame, cv2.COLOR_BGR2RGB)
                 result = process_frame(frame_rgb, confidence_threshold)
                 stframe.image(result, channels="RGB")
-                cv2.waitKey(1)
 
         video_cap.release()
 
 st.markdown("---")
 st.markdown("""
 ### Team B Detection Classes
-- **Pedestrians**: YOLOv8 (`yolov8m.pt`)
-- **Traffic Cones**: Local YOLO model (`my_model2.pt`)
-- **Traffic Lanes**: YOLOv8 (`my_model.pt`)
+- **Pedestrians**: YOLOv8 (`yolov8m.pt`, COCO class 0)
+- **Vehicles**: YOLOv8 (`yolov8m.pt`, COCO class 2)
+- **Traffic Cones**: Custom YOLOv8 model (`my_model2.pt`, custom class)
+- **Traffic Lanes**: Custom YOLOv8 model (`my_model.pt`, class 5)
 """)
