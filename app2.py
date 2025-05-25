@@ -145,7 +145,6 @@ elif input_source == "Upload Video":
                 frame_rgb = cv2.cvtColor(frame, cv2.COLOR_BGR2RGB)
                 result = process_frame(frame_rgb, confidence_threshold)
                 stframe.image(result, channels="RGB")
-                cv2.waitKey(1)
 
         video_cap.release()
 

@@ -94,7 +94,7 @@ if input_source == "Webcam":
     st.subheader("Live Detection Feed")
     run = st.checkbox('Start Detection')
     FRAME_WINDOW = st.image([])
-    camera = cv2.VideoCapture(1)
+    camera = cv2.VideoCapture(0)
 
     while run:
         ret, frame = camera.read()
