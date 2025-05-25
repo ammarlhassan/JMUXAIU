@@ -1,23 +1,28 @@
 import cv2
-import torch
-import streamlit as st
 import numpy as np
-import os
+import streamlit as st
 from PIL import Image
 from ultralytics import YOLO
+from inference_sdk import InferenceHTTPClient
 
+# Roboflow client setup for lane detection
+CLIENT = InferenceHTTPClient(
+    api_url="https://serverless.roboflow.com",
+    api_key="dsCl0K9JaLn3d5MqVnHA"
+)
+
+# Streamlit setup
 st.set_page_config(page_title="Team B Object Detection", layout="wide")
 st.title("Real-Time Object Detection for Autonomous Driving")
-st.subheader("Team B: Pedestrians, Vehicles, Traffic Cones, Lane Detection")
+st.subheader("Team B: Pedestrians, Vehicles, Cones, Lane Detection")
 
 @st.cache_resource
 def load_models():
     pedestrian_vehicle_model = YOLO('yolov8m.pt')  # COCO model
-    cone_model = YOLO('my_model2.pt')              # Custom cone model
-    lane_model = YOLO('my_model.pt')               # Custom lane model
-    return pedestrian_vehicle_model, cone_model, lane_model
+    cone_model = YOLO('my_model2.pt')              # Custom traffic cone model
+    return pedestrian_vehicle_model, cone_model
 
-pedestrian_vehicle_model, cone_model, lane_model = load_models()
+pedestrian_vehicle_model, cone_model = load_models()
 
 st.sidebar.title("Detection Settings")
 confidence_threshold = st.sidebar.slider("Confidence Threshold", 0.0, 1.0, 0.5, 0.05)
@@ -28,42 +33,47 @@ def draw_pedestrian_vehicle_detections(image_np, results):
         class_id = int(cls.item())
         conf = box.conf.item()
 
-        if class_id == 0:  # COCO: person
+        if class_id == 0:  # person
             label = f"Pedestrian: {conf:.2f}"
             color = (0, 255, 0)
-        elif class_id == 2:  # COCO: car
+        elif class_id == 2:  # car
             label = f"Vehicle: {conf:.2f}"
             color = (0, 128, 255)
         else:
-            continue  # skip other classes
+            continue
 
         x1, y1, x2, y2 = map(int, box.xyxy[0])
         cv2.rectangle(image_np, (x1, y1), (x2, y2), color, 2)
-        cv2.putText(image_np, label, (x1, y1 - 10), cv2.FONT_HERSHEY_SIMPLEX, 0.6, color, 2)
+        cv2.putText(image_np, label, (x1, y1 - 10),
+                    cv2.FONT_HERSHEY_SIMPLEX, 0.6, color, 2)
     return image_np
 
 def draw_cone_detections(image_np):
     results = cone_model(image_np, conf=0.25)[0]
     for box, cls in zip(results.boxes, results.boxes.cls):
-        if int(cls.item()) != 6:  # Replace 6 with your cone class index if needed
-            continue
         conf = box.conf.item()
         x1, y1, x2, y2 = map(int, box.xyxy[0])
         label = f"Cone: {conf:.2f}"
         cv2.rectangle(image_np, (x1, y1), (x2, y2), (255, 165, 0), 2)
-        cv2.putText(image_np, label, (x1, y1 - 10), cv2.FONT_HERSHEY_SIMPLEX, 0.6, (255, 165, 0), 2)
+        cv2.putText(image_np, label, (x1, y1 - 10),
+                    cv2.FONT_HERSHEY_SIMPLEX, 0.6, (255, 165, 0), 2)
     return image_np
 
 def draw_lane_detections(image_np):
-    results = lane_model(image_np, conf=0.25)[0]
-    for box, cls in zip(results.boxes, results.boxes.cls):
-        if int(cls.item()) != 5:  # Custom: Lane class
-            continue
-        conf = box.conf.item()
-        x1, y1, x2, y2 = map(int, box.xyxy[0])
+    image_pil = Image.fromarray(image_np)
+    image_pil.save("temp_frame.jpg")
+
+    rf_result = CLIENT.infer("temp_frame.jpg", model_id="lane-detection-vxwns/1")
+    for pred in rf_result["predictions"]:
+        x, y, width, height = int(pred["x"]), int(pred["y"]), int(pred["width"]), int(pred["height"])
+        x1, y1 = x - width // 2, y - height // 2
+        x2, y2 = x + width // 2, y + height // 2
+        conf = float(pred["confidence"])
         label = f"Lane: {conf:.2f}"
+
         cv2.rectangle(image_np, (x1, y1), (x2, y2), (255, 0, 0), 2)
-        cv2.putText(image_np, label, (x1, y1 - 10), cv2.FONT_HERSHEY_SIMPLEX, 0.6, (255, 0, 0), 2)
+        cv2.putText(image_np, label, (x1, y1 - 10),
+                    cv2.FONT_HERSHEY_SIMPLEX, 0.6, (255, 0, 0), 2)
     return image_np
 
 def process_frame(frame, conf_threshold):
@@ -74,6 +84,7 @@ def process_frame(frame, conf_threshold):
     annotated_frame = draw_lane_detections(annotated_frame)
     return annotated_frame
 
+# --- Input Handling ---
 if input_source == "Webcam":
     st.subheader("Live Detection Feed")
     run = st.checkbox('Start Detection')
@@ -83,7 +94,7 @@ if input_source == "Webcam":
     while run:
         ret, frame = camera.read()
         if not ret:
-            st.warning("Failed to access camera. Try changing the camera index.")
+            st.warning("Failed to access camera.")
             break
 
         frame = cv2.cvtColor(frame, cv2.COLOR_BGR2RGB)
@@ -121,7 +132,6 @@ elif input_source == "Upload Video":
 
         video_cap = cv2.VideoCapture(temp_file)
         stframe = st.empty()
-
         play_button = st.button("Play Video Detection")
         stop_button = st.button("Stop")
 
@@ -138,11 +148,12 @@ elif input_source == "Upload Video":
 
         video_cap.release()
 
+# Footer
 st.markdown("---")
 st.markdown("""
-### Team B Detection Classes
+### Team B Detection Summary
 - **Pedestrians**: YOLOv8 (`yolov8m.pt`, COCO class 0)
 - **Vehicles**: YOLOv8 (`yolov8m.pt`, COCO class 2)
-- **Traffic Cones**: Custom YOLOv8 model (`my_model2.pt`, custom class)
-- **Traffic Lanes**: Custom YOLOv8 model (`my_model.pt`, class 5)
+- **Traffic Cones**: Custom model (`my_model2.pt`)
+- **Lanes**: Roboflow API model (`lane-detection-vxwns/1`)
 """)
