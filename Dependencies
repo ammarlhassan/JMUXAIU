@@ -2,3 +2,5 @@ Dependencies
 
 pip install opencv-python torch streamlit numpy pillow ultralytics inference_sdk python-dotenv
 
+pip install --upgrade torch torchvision torchaudio --index-url https://download.pytorch.org/whl/cu124
+
